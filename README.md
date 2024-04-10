@@ -71,3 +71,5 @@ https://github.com/Jer6y/rv_linux_bug/assets/88422053/578bf9f6-5227-4c63-a282-eb
 
 
 # use proot on openEuler riscv to chroot 
+
+https://github.com/Jer6y/rv_linux_bug/assets/88422053/4f343c1e-24ab-4c78-bade-29c190f30a16
