@@ -21,9 +21,9 @@
 
 # Bug  analysis
 
-- **Take a look at this patch [[PATCH\] riscv: entry: Save a0 prior syscall_enter_from_user_mode() (kernel.org)](https://lore.kernel.org/lkml/20230403-crisping-animosity-04ed8a45c625@spud/T/) **
+- **Take a look at this patch [[PATCH\] riscv: entry: Save a0 prior syscall_enter_from_user_mode() (kernel.org)](https://lore.kernel.org/lkml/20230403-crisping-animosity-04ed8a45c625@spud/T/)** 
 
-- **we need to know that where will sleep in when tracee signal self in syscall enter. take a look at file in linux  `/arch/riscv/kernel/traps.c`  , the function  `do_trap_ecall_u` ,  every time process execute syscall will get in the function , and will be blocked in `syscall_enter_from_user_mode` if it is traced for syscall enter and exit . and you will know that regs->orig_a0 is be assigned before `syscall_enter_from_user_mode` . and if  we use ptrace for tracer to change the register , we can't change orig_a0 , we can only change a0, because riscv ptrace USERSPACE don't support the orig_a0 change.  so, actually , we can't change orig_a0 use PTRACE_SYSCALL option. **
+- **we need to know that where will sleep in when tracee signal self in syscall enter. take a look at file in linux  `/arch/riscv/kernel/traps.c`  , the function  `do_trap_ecall_u` ,  every time process execute syscall will get in the function , and will be blocked in `syscall_enter_from_user_mode` if it is traced for syscall enter and exit . and you will know that regs->orig_a0 is be assigned before `syscall_enter_from_user_mode` . and if  we use ptrace for tracer to change the register , we can't change orig_a0 , we can only change a0, because riscv ptrace USERSPACE don't support the orig_a0 change.  so, actually , we can't change orig_a0 use PTRACE_SYSCALL option.** 
 
 
 
@@ -46,9 +46,9 @@ gcc test.c -o test
 
 ### what do "a.out"  and "test" do ?
 
-- **`a.out` **
-  - **`fork` and setup tracee relationship between father and son **
-  - **`father process` :  take  `waitpid` to get tracee and  use `ptrace syscall` to change a0  to NULL when tracee is executing  `execve syscall`  **
+- **`a.out`** 
+  - **`fork` and setup tracee relationship between father and son** 
+  - **`father process` :  take  `waitpid` to get tracee and  use `ptrace syscall` to change a0  to NULL when tracee is executing  `execve syscall`**  
   - **`son process` :  first `claim itself can be traced` and `signal self` to be trace stopped , then execute `./test` ELF**
 - **`test`**
   - **print all argument passed by `execve syscall` , also the `envp`**
@@ -80,7 +80,7 @@ gcc test.c -o test
 
 https://github.com/Jer6y/rv_linux_bug/assets/88422053/578bf9f6-5227-4c63-a282-eb4ae1af23da
 
-**Compared to running on `x86`, there were 7 additional failures. **
+**Compared to running on `x86`, there were 7 additional failures.** 
 
 **This could be due to the `ptrace still having bugs`, or it might be that the ported code requires further improvement.**
 
