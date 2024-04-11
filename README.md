@@ -1,21 +1,33 @@
-# rv_linux_bug
-a descrption for a riscv linux bug
+# README Summary 
+
+**This is a brief readme introduction on how to properly run and operate `proot` on `openEuler RISCV 23.09`.  Before compiling and running, there is a `bug with RISCV Linux ptrace` that needs to be addressed.**
 
 
 
-# bug summary
+# Bug summary
 
-#### A ptrace bug in riscv linux , when tracer want to change tracee's a0 register in option PTRACE_SYSCALL to stop the tracee
-
-
-
-# bug descrption
-
-[218701 – tracer can't change a0 in tracee when use ptrace syscall option in riscv (kernel.org)](https://bugzilla.kernel.org/show_bug.cgi?id=218701)
+**A ptrace bug in riscv linux , when tracer want to change tracee's a0 register in option PTRACE_SYSCALL to stop the tracee**
 
 
 
-# bug Reproduction
+# Bug descrption
+
+- **Hardware Environment : Qemu 7.2.0, qemu-system-riscv64**
+- **OS Distribution: openEuler 23.09 RISCV community** 
+- **Linux Kernel Version: 6.4.0**
+- **Bug Description : when i am trying to use ptrace for tracer to change the tracee's a0 register in riscv linux when tracee is trace stopped by `PTRACE_SYSCALL`, actually , it doesn't change a0 , but it actually can change a1 ... a7 and other registers**
+
+
+
+# Bug  analysis
+
+- **Take a look at this patch [[PATCH\] riscv: entry: Save a0 prior syscall_enter_from_user_mode() (kernel.org)](https://lore.kernel.org/lkml/20230403-crisping-animosity-04ed8a45c625@spud/T/) **
+
+- **we need to know that where will sleep in when tracee signal self in syscall enter. take a look at file in linux  `/arch/riscv/kernel/traps.c`  , the function  `do_trap_ecall_u` ,  every time process execute syscall will get in the function , and will be blocked in `syscall_enter_from_user_mode` if it is traced for syscall enter and exit . and you will know that regs->orig_a0 is be assigned before `syscall_enter_from_user_mode` . and if  we use ptrace for tracer to change the register , we can't change orig_a0 , we can only change a0, because riscv ptrace USERSPACE don't support the orig_a0 change.  so, actually , we can't change orig_a0 use PTRACE_SYSCALL option. **
+
+
+
+# Bug Reproduction
 
 ### compile code.c and test.c in riscv linux
 
@@ -34,39 +46,43 @@ gcc test.c -o test
 
 ### what do "a.out"  and "test" do ?
 
-**The `a.out` program utilizes the `fork` system call to generate a `tracee` process, establishing a trace relationship with the parent process. The `tracee` process will proactively send a signal to halt at the `kill` point. Meanwhile, the `tracer` process employs the `PTRACE_SYSCALL` option to monitor the `enter` and `exit` of system calls within the child process. Upon detecting a `execve` system call, it modifies the `a0` register, which is the pointer register corresponding to the path of the ELF file.**
-
-**if `a0 register` is set correctly , the  `test` can't be excute , and test is just print all its `argv and envp` **
-
-
-
-# bug  analysis
-
-**Take a look at this patch [[PATCH\] riscv: entry: Save a0 prior syscall_enter_from_user_mode() (kernel.org)](https://lore.kernel.org/lkml/20230403-crisping-animosity-04ed8a45c625@spud/T/) **
-
-**we need to know that where will sleep in when tracee signal self in syscall enter. take a look at file in linux  `/arch/riscv/kernel/traps.c`  , the function  `do_trap_ecall_u` ,  every time process execute syscall will get in the function , and will be blocked in `syscall_enter_from_user_mode` if it is traced for syscall enter and exit . and you will know that regs->orig_a0 is be assigned before `syscall_enter_from_user_mode` . and if  we use ptrace for tracer to change the register , we can't change orig_a0 , we can only change a0, because riscv ptrace USERSPACE don't support the orig_a0 change.  so, actually , we can't change orig_a0 use PTRACE_SYSCALL option. **
+- **`a.out` **
+  - **`fork` and setup tracee relationship between father and son **
+  - **`father process` :  take  `waitpid` to get tracee and  use `ptrace syscall` to change a0  to NULL when tracee is executing  `execve syscall`  **
+  - **`son process` :  first `claim itself can be traced` and `signal self` to be trace stopped , then execute `./test` ELF**
+- **`test`**
+  - **print all argument passed by `execve syscall` , also the `envp`**
+- **if ptrace execute success , `test` will not be excuted , but actually , `./test` works well .**
 
 
 
-# bug fix
+# hot to fix bug
 
-**I think we should add orig_a0 to USERSPACE as other architecture such as x86 do , otherwise i have no idea how to deal with the bug in [[PATCH\] riscv: entry: Save a0 prior syscall_enter_from_user_mode() (kernel.org)](https://lore.kernel.org/lkml/20230403-crisping-animosity-04ed8a45c625@spud/T/) the same time we can normally use ptrace in riscv for option PTRACE_SYSCALL **
+- **add orig_a0 to USERSPACE  : This behavior can affect many modules, including some user space header files such as asm/ptrace.h, etc.  I have not submitted the corresponding patch, but rather reported it as a bug to the Linux community.**
 
 
 
-# what should I do to change my kernel to support ptrace and run proot
+# simple way to support ptrace and run proot
 
-**Actually, I am unable to address this bug as I am not well-versed in RISCV Linux. However, if we wish to use proot for RISCV normally before this bug is resolved, we need to make some modifications to the local kernel. My local RISCV distribution is the openEuler 23.09 community edition. We need to insert the code "if(regs->orig_a0 != regs->a0 ) regs->orig_a0 = regs->a0" at the end of the syscall_trace_enter function in the file /kernel/entry/common.c. This approach is, in fact, quite unsightly as it involves adding RISCV-specific code into a generic architecture. Yet, it is effective. At the same time, it does not solve the problem introduced by the previous PATCH; it merely reduces the likelihood of the bug occurring. If you are very eager to experience RISCV proot, you can take this step.**
-
-![](add.png)
+- **Note : The methods for all these options are only applicable for temporarily modifying the kernel code locally.**
+  - **insert the code "`if(regs->orig_a0 != regs->a0 ) regs->orig_a0 = regs->a0`" at the end of the `syscall_trace_enter` function in the file `/kernel/entry/common.c`.**
+  - ![](add.png)**The places marked with red lines are where you need to add the corresponding code.**
+  - **The addition of this code is rather crude:**
+    - **It insert RISCV architecture code into the generic architecture code.**
+    - **It does not effectively resolve the BUG mentioned in the [PATCH](https://lore.kernel.org/lkml/20230403-crisping-animosity-04ed8a45c625@spud/T/). it merely reduces the likelihood of the BUG occurring**
+    - **However, it allows proot to function properly.**
 
 
 
 # testcase for riscv proot
 
-**I have adopted the aforementioned strategy, so I cannot fully guarantee whether the reasons for the failed execution of the test cases are due to the aforementioned temporary method or issues with the ported code. However, under these circumstances, most of the proot test cases have passed, with only about seven failures more than the results obtained on the x86 platform.**
+**I employed a temporary solution by recompiling the openEuler kernel locally, and this is the result of my proot test cases.**
 
 https://github.com/Jer6y/rv_linux_bug/assets/88422053/578bf9f6-5227-4c63-a282-eb4ae1af23da
+
+**Compared to running on `x86`, there were 7 additional failures. **
+
+**This could be due to the `ptrace still having bugs`, or it might be that the ported code requires further improvement.**
 
 
 
